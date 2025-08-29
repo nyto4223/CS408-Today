@@ -1,0 +1,1035 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>408 智能复习计划</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;700&display=swap');
+        body {
+            font-family: 'Noto Sans SC', sans-serif;
+            -webkit-tap-highlight-color: transparent;
+        }
+        .view-container {
+            transition: opacity 0.4s ease-in-out, transform 0.4s ease-in-out;
+        }
+        .hidden-view {
+            opacity: 0;
+            transform: scale(0.98);
+            pointer-events: none;
+            position: absolute;
+            width: 100%;
+        }
+        .plan-item, .stat-item, .timeline-item {
+            transform: translateY(20px);
+            opacity: 0;
+            animation: fadeIn 0.5s ease-out forwards;
+        }
+        @keyframes fadeIn {
+            to {
+                transform: translateY(0);
+                opacity: 1;
+            }
+        }
+        .custom-checkbox:checked {
+            background-image: url("data:image/svg+xml,%3csvg viewBox='0 0 16 16' fill='white' xmlns='http://www.w3.org/2000/svg'%3e%3cpath d='M12.207 4.793a1 1 0 010 1.414l-5 5a1 1 0 01-1.414 0l-2-2a1 1 0 011.414-1.414L6.5 9.086l4.293-4.293a1 1 0 011.414 0z'/%3e%3c/svg%3e");
+            background-color: #4f46e5;
+            border-color: #4f46e5;
+        }
+        .modal-backdrop.hidden { display: none; }
+        .modal-content { animation: slide-up 0.3s ease-out; }
+        @keyframes slide-up {
+            from { transform: translateY(50px); opacity: 0; }
+            to { transform: translateY(0); opacity: 1; }
+        }
+        .spinner {
+            border: 4px solid rgba(255, 255, 255, 0.3);
+            border-radius: 50%;
+            border-top: 4px solid #fff;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        input[type=range] {
+            -webkit-appearance: none; appearance: none;
+            width: 100%; height: 8px; background: #374151;
+            border-radius: 5px; outline: none; transition: background 0.3s;
+        }
+        input[type=range]:hover { background: #4b5563; }
+        input[type=range]::-webkit-slider-thumb {
+            -webkit-appearance: none; appearance: none;
+            width: 24px; height: 24px; background: #6366f1;
+            cursor: pointer; border-radius: 50%; border: 4px solid #111827;
+        }
+        input[type=range]::-moz-range-thumb {
+            width: 24px; height: 24px; background: #6366f1;
+            cursor: pointer; border-radius: 50%; border: 4px solid #111827;
+        }
+        .weight-btn-group button.active {
+            background-color: #4f46e5;
+            color: white;
+            font-weight: bold;
+        }
+        .calendar-grid {
+            grid-template-columns: repeat(7, minmax(0, 1fr));
+        }
+    </style>
+</head>
+<body class="bg-gray-900 text-gray-200 flex flex-col items-center min-h-screen p-4">
+<div class="w-full max-w-4xl mx-auto">
+    <header class="text-left mb-6">
+        <h1 class="text-xl font-bold text-white">408今天学什么</h1>
+        <p class="text-xs text-gray-500">CS408 Today</p>
+    </header>
+
+    <main class="relative">
+        <!-- 主界面/仪表盘容器 -->
+        <div id="dashboard-container" class="view-container text-center"></div>
+
+        <!-- 设置页面容器 -->
+        <div id="settings-container" class="view-container hidden-view w-full text-left"></div>
+
+        <!-- 复习计划容器 -->
+        <div id="plan-container" class="view-container hidden-view w-full text-left"></div>
+
+        <!-- 复习统计主页容器 -->
+        <div id="stats-main-container" class="view-container hidden-view w-full text-left"></div>
+
+        <!-- 章节统计详情页容器 -->
+        <div id="chapter-detail-container" class="view-container hidden-view w-full text-left"></div>
+
+        <!-- 历史计划详情页容器 -->
+        <div id="history-detail-container" class="view-container hidden-view w-full text-left"></div>
+
+        <!-- 完整日历容器 -->
+        <div id="full-calendar-container" class="view-container hidden-view w-full text-left"></div>
+    </main>
+</div>
+
+<footer class="text-center mt-8 text-xs text-gray-600">
+    <p>Crafted by Nyto4223 & Gemini</p>
+</footer>
+
+<!-- Modals -->
+<div id="ai-modal-backdrop" class="modal-backdrop fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center p-4 hidden z-50">
+    <div id="ai-modal-content" class="modal-content bg-gray-800 rounded-lg shadow-xl w-full max-w-2xl max-h-[80vh] flex flex-col">
+        <div class="flex justify-between items-center p-4 border-b border-gray-700">
+            <h3 id="ai-modal-title" class="text-xl font-bold text-white">✨ AI 助教</h3>
+            <button class="modal-close text-gray-400 hover:text-white">&times;</button>
+        </div>
+        <div class="p-6 overflow-y-auto"><div id="ai-loading" class="flex flex-col items-center justify-center text-center"><div class="spinner"></div><p class="mt-4 text-gray-300">AI 正在思考中...</p></div><div id="ai-result" class="text-gray-300 whitespace-pre-wrap"></div></div>
+    </div>
+</div>
+
+<div id="notes-modal-backdrop" class="modal-backdrop fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center p-4 hidden z-50">
+    <div id="notes-modal-content" class="modal-content bg-gray-800 rounded-lg shadow-xl w-full max-w-xl flex flex-col">
+        <div class="flex justify-between items-center p-4 border-b border-gray-700"><h3 id="notes-modal-title" class="text-xl font-bold text-white">复习笔记</h3><button class="modal-close text-gray-400 hover:text-white">&times;</button></div>
+        <div class="p-6"><textarea id="notes-textarea" class="w-full h-48 bg-gray-700 text-gray-200 p-3 rounded-md focus:ring-2 focus:ring-indigo-500" placeholder="在此输入你的笔记、总结或疑问..."></textarea><div class="text-right mt-4"><button id="save-note-btn" class="bg-indigo-600 text-white font-bold py-2 px-6 rounded-lg hover:bg-indigo-500 transition-colors">保存</button></div></div>
+    </div>
+</div>
+
+<div id="api-key-modal-backdrop" class="modal-backdrop fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center p-4 hidden z-50">
+    <div id="api-key-modal-content" class="modal-content bg-gray-800 rounded-lg shadow-xl w-full max-w-md flex flex-col">
+        <div class="flex justify-between items-center p-4 border-b border-gray-700">
+            <h3 class="text-xl font-bold text-white">配置 AI API 密钥</h3>
+            <button id="api-key-modal-close" class="modal-close text-gray-400 hover:text-white">&times;</button>
+        </div>
+        <div class="p-6 space-y-4">
+            <p class="text-gray-400 text-sm">为了使用AI助教功能，请从 Google AI Studio 获取并输入您的 Gemini API 密钥。密钥将被安全地保存在您的浏览器本地。</p>
+            <input type="password" id="api-key-input" class="w-full bg-gray-700 text-gray-200 p-2 rounded-md focus:ring-2 focus:ring-indigo-500" placeholder="AIzaSy...">
+            <div class="text-right">
+                <button id="save-api-key-btn" class="bg-indigo-600 text-white font-bold py-2 px-6 rounded-lg hover:bg-indigo-500 transition-colors">保存密钥</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    // --- 数据定义区 ---
+    const SYLLABUS = [
+        ["数据结构", "第一章 绪论", "数据结构的基本概念", 10, ["concept"], ["理解并区分数据的逻辑结构（线性结构、树形结构、图结构、集合）与存储结构（顺序存储、链式存储、索引存储、散列存储），以及它们之间的关系。"]],
+        ["数据结构", "第一章 绪论", "算法的基本概念", 25, ["algorithm", "complexity"], ["掌握算法的五个基本特性（有穷性、确定性、可行性、输入、输出）。", "理解算法设计的要求（正确性、可读性、健壮性、高效率与低存储量需求）。", "（重点）掌握时间复杂度和空间复杂度的分析方法，能够分析常见循环和递归算法的复杂度。"]],
+        ["数据结构", "第二章 线性表", "线性表的基本概念与实现", 40, ["linear_list", "storage"], ["理解线性表的定义和基本操作（增、删、改、查）。", "掌握顺序表的定义、特点（随机存取），并能分析其插入、删除、查找操作的性能。", "掌握单链表、双向链表、循环链表的结构和基本操作实现（头插法、尾插法、插入、删除）。"]],
+        ["数据结构", "第三章 栈、队列和数组", "栈和队列", 40, ["stack", "queue"], ["理解栈的“后进先出”(LIFO)和队列的“先进先出”(FIFO)特性。", "掌握顺序栈和链栈的实现。", "（重点）掌握循环队列的实现，特别是队空和队满的判断条件。", "掌握链队列的实现。"]],
+        ["数据结构", "第三章 栈、队列和数组", "数组与特殊矩阵", 30, ["array", "matrix", "storage"], ["理解数组按行优先和列优先的存储方式，并能进行地址计算。", "掌握对称矩阵、三角矩阵、稀疏矩阵的压缩存储方法。"]],
+        ["数据结构", "第三章 栈、队列和数组", "栈、队列和数组的应用", 25, ["application"], ["理解栈在表达式求值、括号匹配、函数调用中的应用；队列在层次遍历、缓冲区中的应用。"]],
+        ["数据结构", "第四章 树与二叉树", "树与二叉树的基本概念", 40, ["tree"], ["掌握树的定义、度、深度、叶子节点等基本术语。", "掌握二叉树的5个重要性质。", "掌握二叉树的顺序存储（仅限完全二叉树）和链式存储。"]],
+        ["数据结构", "第四章 树与二叉树", "二叉树的遍历与线索化", 35, ["traversal"], ["（重点）熟练掌握先序、中序、后序遍历的递归和非递归（使用栈）实现，以及层次遍历（使用队列）的实现。", "理解线索二叉树的目的，能画出二叉树的线索化结果。"]],
+        ["数据结构", "第四章 树与二叉树", "树、森林", 25, ["tree"], ["掌握树的双亲表示法、孩子表示法、孩子兄弟表示法。", "掌握树、森林与二叉树的相互转换方法及遍历。"]],
+        ["数据结构", "第四章 树与二叉树", "树与二叉树的应用", 45, ["application", "huffman", "heap"], ["（重点）理解哈夫曼树的构造过程，计算带权路径长度(WPL)，构造哈夫曼编码。", "理解并查集的基本操作（Find, Union），掌握路径压缩和按秩合并优化。", "（新增重点）掌握大根堆、小根堆的定义，以及在堆上进行插入和删除元素的操作（向上调整、向下调整），理解堆排序的实现。"]],
+        ["数据结构", "第五章 图", "图的概念与存储", 30, ["graph", "storage"], ["掌握有向图、无向图、顶点的度、路径、连通性等基本概念。", "掌握邻接矩阵和邻接表的表示方法、特点及适用场景。了解邻接多重表、十字链表。"]],
+        ["数据结构", "第五章 图", "图的遍历", 25, ["graph", "traversal"], ["（重点）熟练掌握深度优先搜索(DFS)和广度优先搜索(BFS)的算法思想、实现过程和时空复杂度。"]],
+        ["数据结构", "第五章 图", "图的基本应用", 50, ["graph", "application"], ["（重点）掌握Prim算法和Kruskal算法的思想和执行过程。", "（重点）掌握Dijkstra算法（单源）和Floyd算法（所有顶点对）的思想和执行过程。", "理解AOV网，掌握拓扑排序的实现方法。", "理解AOE网，掌握求解关键路径和关键活动的步骤。"]],
+        ["数据结构", "第六章 查找", "线性查找", 30, ["search"], ["理解顺序查找、折半查找（二分查找）、分块查找的原理、实现和性能分析。"]],
+        ["数据结构", "第六章 查找", "树型查找", 45, ["search", "tree"], ["掌握二叉搜索树 (BST)的定义、查找、插入、删除操作。", "（重点）理解AVL树的平衡因子，掌握四种平衡调整（LL, RR, LR, RL旋转）的方法。", "掌握红黑树的5条基本性质。"]],
+        ["数据结构", "第六章 查找", "B树与B+树", 35, ["search", "b_tree"], ["（重点）理解B树的定义，掌握其插入（分裂）和删除（合并/借位）操作的过程。", "理解B+树的基本概念及其与B树的区别。"]],
+        ["数据结构", "第六章 查找", "散列表(Hash Table)", 30, ["search", "hash"], ["（重点）理解哈希函数的构造，熟练掌握处理哈希冲突的链地址法和开放定址法（线性探测、平方探测等）。", "会计算平均查找长度(ASL)。"]],
+        ["数据结构", "第六章 查找", "字符串模式匹配", 35, ["string", "kmp"], ["（重点）理解并掌握KMP算法中next数组的计算方法和匹配过程。"]],
+        ["数据结构", "第七章 排序", "插入、交换、选择排序", 45, ["sort"], ["熟练掌握直接插入排序、希尔排序、冒泡排序、快速排序、简单选择排序、堆排序的思想、实现、时空复杂度及稳定性。"]],
+        ["数据结构", "第七章 排序", "归并与基数排序", 35, ["sort"], ["熟练掌握二路归并排序和基数排序的思想、实现、时空复杂度及稳定性。"]],
+        ["数据结构", "第七章 排序", "外部排序", 20, ["sort", "external"], ["理解外部排序的基本思想和多路归并的过程。"]],
+        ["计算机组成原理", "第一章 计算机系统概述", "系统层次结构与工作原理", 30, [], ["理解冯·诺依曼计算机的特点，掌握计算机硬件五大部件和软件分类。", "（重点）理解“存储程序”工作方式，以及高级语言程序到可执行文件的转换过程（编译、链接）。"]],
+        ["计算机组成原理", "第一章 计算机系统概述", "计算机性能指标", 20, [], ["（重点）掌握CPU执行时间的计算公式（= 指令数 × CPI × 时钟周期），以及主频、CPI、MIPS等指标的含义。"]],
+        ["计算机组成原理", "第二章 数据的表示和运算", "整数的表示和运算", 35, [], ["熟练掌握真值与原码、反码、补码、移码之间的转换。", "（重点）掌握补码的加减运算方法和溢出判断（双符号位法、单符号位法）。"]],
+        ["计算机组成原理", "第二章 数据的表示和运算", "浮点数的表示和运算", 40, [], ["（重点）掌握IEEE 754标准的格式，能将十进制数与单/双精度浮点数相互转换。理解规格化、阶码、尾数。", "理解浮点数的加减运算步骤（对阶、尾数运算、规格化、舍入、判溢出）。"]],
+        ["计算机组成原理", "第三章 存储器层次结构", "主存储器", 35, [], ["理解SRAM和DRAM的工作原理和区别。", "（重点）掌握主存容量扩展的方法（位扩展、字扩展、字位同时扩展）和芯片选择逻辑。"]],
+        ["计算机组成原理", "第三章 存储器层次结构", "高速缓冲存储器(Cache)", 45, [], ["（重中之重）理解局部性原理。", "熟练掌握直接映射、全相联映射、组相联映射的地址结构划分、主存块如何映射到Cache块。", "理解替换算法（LRU、FIFO）和写策略（写回法、全写法）。"]],
+        ["计算机组成原理", "第三章 存储器层次结构", "虚拟存储器", 40, [], ["（重点）理解页式虚拟存储的基本原理，掌握逻辑地址到物理地址的转换过程，理解快表(TLB)在地址转换中的作用。"]],
+        ["计算机组成原理", "第四章 指令系统", "寻址方式", 30, [], ["（重点）掌握立即、直接、间接、寄存器、寄存器间接、相对、基址、变址等寻址方式的定义，并能根据指令计算出有效地址和操作数。"]],
+        ["计算机组成原理", "第四章 指令系统", "高级语言与机器代码", 25, [], ["（新增重点）理解C语言中的选择（if-else）、循环（for/while）、过程调用（函数调用栈）在机器级的基本实现方式。"]],
+        ["计算机组成原理", "第五章 中央处理器(CPU)", "异常和中断机制", 30, [], ["（重点）理解中断和异常的定义、区别，掌握中断的检测与响应过程（中断周期）。"]],
+        ["计算机组成原理", "第五章 中央处理器(CPU)", "指令流水线", 40, [], ["（重中之重）理解流水线的概念和性能指标。", "掌握结构冒险、数据冒险、控制冒险的定义，以及对应的解决方法（数据转发、流水线暂停、分支预测）。"]],
+        ["计算机组成原理", "第五章 中央处理器(CPU)", "多处理器基本概念", 20, [], ["（新增重点）理解SISD、SIMD、MIMD的分类，了解硬件多线程、多核处理器、共享内存多处理器(SMP)的基本概念。"]],
+        ["计算机组成原理", "第六章 总线", "I/O方式", 30, [], ["（重点）掌握程序查询、中断驱动和DMA三种I/O方式的工作原理、过程、优缺点和区别。"]],
+        ["操作系统", "第一章 操作系统概述", "程序运行环境", 30, [], ["（新增重点）理解CPU运行模式（内核态/用户态）的切换，中断和异常的分类和处理过程，系统调用的实现原理。", "理解程序的链接、装入过程和运行时的内存映像。"]],
+        ["操作系统", "第二章 进程管理", "进程与线程", 35, [], ["掌握进程的状态（三态、五态、七态模型）及其转换，理解PCB的作用。", "理解进程与线程的区别与联系。", "（新增）掌握进程间通信(IPC)的主要方式：共享内存、消息传递、管道。"]],
+        ["操作系统", "第二章 进程管理", "CPU调度与上下文切换", 30, [], ["（重点）掌握FCFS, SJF, 优先级调度, RR, 多级反馈队列等调度算法的原理、优缺点和周转时间/带权周转时间的计算。"]],
+        ["操作系统", "第二章 进程管理", "同步与互斥", 45, [], ["（重中之重）理解临界资源、临界区。", "熟练掌握使用信号量和PV操作解决经典的同步互斥问题（生产者-消费者、读者-写者、哲学家进餐）。"]],
+        ["操作系统", "第二章 进程管理", "死锁", 30, [], ["掌握死锁产生的四个必要条件。", "理解死锁的预防、避免（银行家算法）、检测和解除策略。"]],
+        ["操作系统", "第三章 内存管理", "内存管理基础", 30, [], ["掌握连续分配管理方式（首次适应、最佳适应、最差适应算法）。", "（重点）掌握分页管理、分段管理的地址转换过程，以及它们之间的区别。"]],
+        ["操作系统", "第三章 内存管理", "虚拟内存管理", 45, [], ["（重中之重）理解请求分页与缺页中断的处理过程。", "熟练掌握页面置换算法（OPT, FIFO, LRU, CLOCK）的原理和缺页次数计算。", "（新增）理解页框分配与回收策略，了解内存映射文件的概念。"]],
+        ["操作系统", "第四章 文件管理", "文件、目录与文件系统", 40, [], ["掌握文件的物理结构（连续分配、链接分配、索引分配）的原理和优缺点。", "理解硬链接和软链接的区别。", "掌握外存空闲空间管理的方法（位示图、空闲链表法、成组链接法）。"]],
+        ["操作系统", "第五章 输入输出(I/O)管理", "I/O管理与外存管理", 35, [], ["掌握I/O控制方式（轮询、中断、DMA）。", "（重点）掌握磁盘调度算法（FCFS, SSTF, SCAN, C-SCAN, C-LOOK）的寻道过程和寻道数计算。", "理解固态硬盘的读写特性和磨损均衡。"]],
+        ["计算机网络", "第一章 计算机网络概述", "计算机网络体系结构", 25, [], ["熟练掌握OSI七层模型和TCP/IP四层/五层模型的各层名称、功能和主要协议。"]],
+        ["计算机网络", "第二章 物理层", "通信基础", 25, [], ["（重点）理解并会应用奈奎斯特定理与香农定理进行计算。", "理解电路交换、报文交换、分组交换（数据报与虚电路）的区别。"]],
+        ["计算机网络", "第三章 数据链路层", "可靠传输与流量控制", 35, [], ["掌握CRC循环冗余码的计算方法。", "（重点）掌握停止-等待协议、回退N帧协议(GBN)、选择重传协议(SR)的工作原理、发送/接收窗口大小和区别。"]],
+        ["计算机网络", "第三章 数据链路层", "介质访问控制与局域网", 35, [], ["（重点）掌握CSMA/CD协议的工作原理、冲突检测、争用期、最小帧长。", "理解VLAN的基本概念与原理。", "理解以太网交换机自学习和转发帧的原理。"]],
+        ["计算机网络", "第四章 网络层", "IPv4", 40, [], ["（重中之重）熟练进行子网划分和CIDR（构造超网）的相关计算（网络地址、广播地址、主机数、子网掩码）。", "掌握ARP协议的工作原理。"]],
+        ["计算机网络", "第四章 网络层", "路由算法与协议", 35, [], ["（重点）理解距离-向量算法(RIP)和链路状态算法(OSPF)的基本思想和区别。", "理解BGP协议的基本概念。", "理解路由器的功能，掌握路由表和分组转发的过程。"]],
+        ["计算机网络", "第五章 传输层", "TCP协议", 50, [], ["（重中之重）", "TCP连接管理: 熟练掌握三次握手和四次挥手的详细过程、状态变迁和报文内容。", "可靠传输: 理解序号、确认、超时重传机制。", "流量控制: 理解滑动窗口机制。", "拥塞控制: 掌握慢开始、拥塞避免、快重传、快恢复四个算法的原理和拥塞窗口大小的变化过程。"]],
+        ["计算机网络", "第六章 应用层", "网络应用协议", 30, [], ["掌握DNS（递归/迭代查询）、FTP（控制/数据连接）、电子邮件（SMTP/POP3）、WWW（HTTP请求方法、状态码、持久/非持久连接、Cookie）的工作原理。"]]
+    ];
+    const MAX_WEIGHT_FOR_NEW = 50;
+    const CHAPTER_MAX_DURATIONS = {
+        "数据结构 - 第一章 绪论": 45, "数据结构 - 第二章 线性表": 75, "数据结构 - 第三章 栈、队列和数组": 90, "数据结构 - 第四章 树与二叉树": 120, "数据结构 - 第五章 图": 120, "数据结构 - 第六章 查找": 120, "数据结构 - 第七章 排序": 90,
+        "计算机组成原理 - 第一章 计算机系统概述": 60, "计算机组成原理 - 第二章 数据的表示和运算": 90, "计算机组成原理 - 第三章 存储器层次结构": 120, "计算机组成原理 - 第四章 指令系统": 90, "计算机组成原理 - 第五章 中央处理器(CPU)": 120, "计算机组成原理 - 第六章 总线": 60,
+        "操作系统 - 第一章 操作系统概述": 60, "操作系统 - 第二章 进程管理": 120, "操作系统 - 第三章 内存管理": 120, "操作系统 - 第四章 文件管理": 90, "操作系统 - 第五章 输入输出(I/O)管理": 60,
+        "计算机网络 - 第一章 计算机网络概述": 45, "计算机网络 - 第二章 物理层": 45, "计算机网络 - 第三章 数据链路层": 90, "计算机网络 - 第四章 网络层": 120, "计算机网络 - 第五章 传输层": 120, "计算机网络 - 第六章 应用层": 60
+    };
+    const WEIGHT_LABELS = { 1: "普通", 3: "重点", 5: "核心" };
+
+
+    // --- 核心逻辑区 ---
+    const getTodayDateString = () => new Date().toISOString().slice(0, 10);
+    const storage = {
+        get: (key, defaultValue = null) => { try { return JSON.parse(localStorage.getItem(key)) || defaultValue; } catch { return defaultValue; } },
+        set: (key, value) => localStorage.setItem(key, JSON.stringify(value)),
+    };
+
+    function getMachineSeed() {
+        let machineId = storage.get('machineId');
+        if (!machineId) {
+            machineId = Math.random().toString(36).substring(2, 15);
+            storage.set('machineId', machineId);
+        }
+        return machineId;
+    }
+
+    function simpleHash(str) {
+        let hash = 0;
+        for (let i = 0; i < str.length; i++) {
+            const char = str.charCodeAt(i);
+            hash = (hash << 5) - hash + char;
+            hash |= 0;
+        }
+        return hash;
+    }
+
+    function mulberry32(seed) {
+        return function() {
+            let t = seed += 0x6D2B79F5;
+            t = Math.imul(t ^ t >>> 15, t | 1);
+            t ^= t + Math.imul(t ^ t >>> 7, t | 61);
+            return ((t ^ t >>> 14) >>> 0) / 4294967296;
+        }
+    }
+
+    function getWeightedSyllabus(history, today, subjectWeights) {
+        const oneDay = 1000 * 60 * 60 * 24;
+        return SYLLABUS.map(item => {
+            const sectionName = item[2];
+            const subjectName = item[0];
+            const historyItem = history[sectionName];
+            let forgettingWeight = historyItem ? (Math.log(Math.round((today - new Date(historyItem.lastReviewed)) / oneDay) + 1) * 5 + 1) : MAX_WEIGHT_FOR_NEW;
+            let finalWeight = forgettingWeight * (subjectWeights[subjectName] || 3);
+            return { data: item, weight: finalWeight };
+        });
+    }
+
+    function generateUniqueDailyPlan(max_duration, subjectWeights) {
+        const today = new Date();
+        const todayStr = getTodayDateString();
+        const machineSeed = getMachineSeed();
+        const finalSeed = simpleHash(todayStr + machineSeed + JSON.stringify(subjectWeights) + max_duration);
+        const random = mulberry32(finalSeed);
+
+        const history = storage.get('reviewHistory', {});
+        const weightedSyllabus = getWeightedSyllabus(history, today, subjectWeights);
+
+        let review_plan = [];
+        let total_duration = 0;
+        const addedSections = new Set();
+        const chapterDurations = {};
+
+        const maxChapters = Math.max(2, Math.floor(max_duration / 45));
+
+        let remainingItems = [...weightedSyllabus];
+        remainingItems.sort(() => random() - 0.5);
+
+        while (total_duration < max_duration && remainingItems.length > 0) {
+            remainingItems.sort((a, b) => b.weight - a.weight);
+            let chosenItem = remainingItems.shift();
+            if (!chosenItem) break;
+
+            const itemArray = chosenItem.data;
+            const chapterName = `${itemArray[0]} - ${itemArray[1]}`;
+            const itemDuration = itemArray[3];
+            const currentChapterDuration = chapterDurations[chapterName] || 0;
+            const currentChapterCount = Object.keys(chapterDurations).length;
+
+            if (max_duration <= 120 && currentChapterCount >= maxChapters && !chapterDurations[chapterName]) continue;
+            if (currentChapterDuration + itemDuration > (CHAPTER_MAX_DURATIONS[chapterName] || 999)) continue;
+
+            review_plan.push({
+                subject: itemArray[0], chapter: itemArray[1], section: itemArray[2],
+                duration: itemArray[3], tags: itemArray[4], examPoints: itemArray[5], note: "", completed: false
+            });
+            addedSections.add(itemArray[2]);
+            total_duration += itemDuration;
+            chapterDurations[chapterName] = currentChapterDuration + itemDuration;
+        }
+
+        const planData = { plan: review_plan, duration: total_duration, generatedFor: max_duration };
+        storage.set(`plan_${todayStr}`, planData);
+        return planData;
+    }
+
+    function displayDashboard() {
+        const container = document.getElementById('dashboard-container');
+        const history = storage.get('reviewHistory', {});
+        const today = new Date();
+        const oneDay = 1000 * 60 * 60 * 24;
+
+        let totalMemoryStrength = 0;
+        SYLLABUS.forEach(s => {
+            const historyItem = history[s[2]];
+            const strength = historyItem ? Math.max(0.1, Math.exp(-Math.round((today - new Date(historyItem.lastReviewed)) / oneDay) / 14)) : 0.1;
+            totalMemoryStrength += strength;
+        });
+        const overallMastery = (totalMemoryStrength / SYLLABUS.length * 100).toFixed(1);
+
+        let timelineHTML = `
+            <div class="flex justify-between items-center mt-8 mb-4">
+                <h3 class="text-xl font-bold text-white">复习历史时间轴</h3>
+                <button id="goToCalendarBtn" class="text-sm text-sky-400 hover:text-sky-300 font-semibold">查看完整日历 &rarr;</button>
+            </div>
+            <div class="space-y-3">`;
+        for (let i = 0; i < 7; i++) {
+            const date = new Date(today.getTime() - i * oneDay);
+            const dateStr = date.toISOString().slice(0, 10);
+            const planData = storage.get(`plan_${dateStr}`);
+            if (planData && planData.plan.length > 0) {
+                const completedCount = planData.plan.filter(p => p.completed).length;
+                timelineHTML += `
+                    <div class="timeline-item bg-gray-800 p-3 rounded-lg flex justify-between items-center" style="animation-delay: ${i * 50}ms;">
+                        <div>
+                            <p class="font-bold">${dateStr} ${i === 0 ? '(今日)' : ''}</p>
+                            <p class="text-sm text-gray-400">复习了 ${planData.plan.length} 个知识点, 完成 ${completedCount} 个</p>
+                        </div>
+                        <button class="view-past-plan-btn bg-indigo-600 text-white font-bold py-1 px-3 rounded-md text-sm hover:bg-indigo-500" data-date="${dateStr}">查看</button>
+                    </div>`;
+            }
+        }
+        timelineHTML += `</div>`;
+
+        container.innerHTML = `
+            <div class="flex justify-between items-center">
+                <h1 class="text-3xl md:text-4xl font-bold text-white">408学习仪表盘</h1>
+                <button id="manageApiKeyBtn" class="text-2xl" title="设置API Key">⚙️</button>
+            </div>
+            <p class="text-lg text-gray-400 my-6">持续努力，每天进步一点点！</p>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+                <div class="bg-gray-800 p-4 rounded-lg text-center"><p class="text-sm text-gray-400">总知识点掌握度</p><p class="text-3xl font-bold text-green-400">${overallMastery}%</p></div>
+                <div class="bg-gray-800 p-4 rounded-lg text-center flex flex-col justify-center"><button id="goToStatsBtn" class="text-sky-400 font-bold text-xl hover:text-sky-300">查看详细统计 &rarr;</button></div>
+            </div>
+            <button id="goToSettingsBtn" class="bg-indigo-600 text-white font-bold py-4 px-8 w-full max-w-md mx-auto rounded-full shadow-lg hover:bg-indigo-500 focus:outline-none focus:ring-4 focus:ring-indigo-500 focus:ring-opacity-50 transform hover:-translate-y-1 transition-all duration-300 ease-in-out">
+                <span class="text-xl">🚀 开启今日复习</span>
+            </button>
+            ${timelineHTML}
+        `;
+        switchView('dashboard-container');
+        document.getElementById('goToSettingsBtn').addEventListener('click', displaySettings);
+        document.getElementById('goToStatsBtn').addEventListener('click', displayStatisticsMain);
+        document.getElementById('manageApiKeyBtn').addEventListener('click', showApiKeyModal);
+        document.getElementById('goToCalendarBtn').addEventListener('click', () => displayFullCalendar(new Date()));
+        document.querySelectorAll('.view-past-plan-btn').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                const planData = storage.get(`plan_${e.currentTarget.dataset.date}`);
+                if(planData) displayHistoryDetail(planData, e.currentTarget.dataset.date);
+            });
+        });
+    }
+
+    function displaySettings() {
+        const container = document.getElementById('settings-container');
+        container.innerHTML = `
+            <h1 class="text-3xl md:text-4xl font-bold text-white mb-4 text-center">复习设置</h1>
+            <p class="text-lg text-gray-400 mb-6 text-center">自定义时长与科目重点，生成你的专属学习任务。</p>
+            <div class="w-full max-w-lg mx-auto bg-gray-800 p-6 rounded-lg shadow-lg space-y-6">
+                <div>
+                    <label for="duration-slider" class="block text-xl font-bold text-white mb-2">复习总时长: <span id="duration-display">2.0 小时</span></label>
+                    <input type="range" id="duration-slider" min="30" max="480" step="30" value="120" class="w-full">
+                </div>
+                <div>
+                    <h3 class="text-xl font-bold text-white mb-3">科目复习权重</h3>
+                    <div class="space-y-3">
+                        <div class="grid grid-cols-3 gap-x-4 items-center">
+                            <label class="text-right text-gray-300">数据结构</label>
+                            <div class="col-span-2 weight-btn-group bg-gray-700 rounded-full p-1 flex" data-subject="数据结构">
+                                <button data-weight="1" class="w-full text-center rounded-full py-1 text-sm transition">普通</button>
+                                <button data-weight="3" class="w-full text-center rounded-full py-1 text-sm transition active">重点</button>
+                                <button data-weight="5" class="w-full text-center rounded-full py-1 text-sm transition">核心</button>
+                            </div>
+                        </div>
+                         <div class="grid grid-cols-3 gap-x-4 items-center">
+                            <label class="text-right text-gray-300">计组</label>
+                            <div class="col-span-2 weight-btn-group bg-gray-700 rounded-full p-1 flex" data-subject="计组">
+                                <button data-weight="1" class="w-full text-center rounded-full py-1 text-sm transition">普通</button>
+                                <button data-weight="3" class="w-full text-center rounded-full py-1 text-sm transition active">重点</button>
+                                <button data-weight="5" class="w-full text-center rounded-full py-1 text-sm transition">核心</button>
+                            </div>
+                        </div>
+                         <div class="grid grid-cols-3 gap-x-4 items-center">
+                            <label class="text-right text-gray-300">操作系统</label>
+                            <div class="col-span-2 weight-btn-group bg-gray-700 rounded-full p-1 flex" data-subject="操作系统">
+                                <button data-weight="1" class="w-full text-center rounded-full py-1 text-sm transition">普通</button>
+                                <button data-weight="3" class="w-full text-center rounded-full py-1 text-sm transition active">重点</button>
+                                <button data-weight="5" class="w-full text-center rounded-full py-1 text-sm transition">核心</button>
+                            </div>
+                        </div>
+                         <div class="grid grid-cols-3 gap-x-4 items-center">
+                            <label class="text-right text-gray-300">计网</label>
+                            <div class="col-span-2 weight-btn-group bg-gray-700 rounded-full p-1 flex" data-subject="计网">
+                                <button data-weight="1" class="w-full text-center rounded-full py-1 text-sm transition">普通</button>
+                                <button data-weight="3" class="w-full text-center rounded-full py-1 text-sm transition active">重点</button>
+                                <button data-weight="5" class="w-full text-center rounded-full py-1 text-sm transition">核心</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <button id="generatePlanBtn" class="bg-indigo-600 text-white font-bold py-4 px-8 w-full rounded-full shadow-lg hover:bg-indigo-500 focus:outline-none focus:ring-4 focus:ring-indigo-500 focus:ring-opacity-50 transform hover:-translate-y-1 transition-all duration-300 ease-in-out"><span class="text-xl">🚀 生成专属计划</span></button>
+            </div>
+        `;
+        switchView('settings-container');
+
+        const slider = document.getElementById('duration-slider');
+        const display = document.getElementById('duration-display');
+        slider.addEventListener('input', () => {
+            display.textContent = `${(slider.value / 60).toFixed(1)} 小时`;
+        });
+
+        document.querySelectorAll('.weight-btn-group').forEach(group => {
+            group.addEventListener('click', (e) => {
+                if(e.target.tagName === 'BUTTON') {
+                    group.querySelectorAll('button').forEach(btn => btn.classList.remove('active'));
+                    e.target.classList.add('active');
+                }
+            });
+        });
+
+        document.getElementById('generatePlanBtn').addEventListener('click', () => {
+            const duration = parseInt(slider.value, 10);
+            const subjectWeights = {};
+            document.querySelectorAll('.weight-btn-group').forEach(group => {
+                const subject = group.dataset.subject;
+                const activeButton = group.querySelector('button.active');
+                subjectWeights[subject] = parseInt(activeButton.dataset.weight, 10);
+            });
+            const planData = generateUniqueDailyPlan(duration, subjectWeights);
+            displayPlan(planData);
+        });
+    }
+
+    function displayPlan(planData) {
+        const { plan, duration } = planData;
+        const container = document.getElementById('plan-container');
+        container.innerHTML = `
+            <div class="flex flex-col sm:flex-row justify-between items-center mb-6">
+                <div><h2 class="text-3xl font-bold text-white mb-2">今日复习清单</h2><p class="text-gray-400">预计总时长: ${Math.floor(duration / 60)} 小时 ${duration % 60} 分钟</p></div>
+                <div class="flex space-x-2 mt-4 sm:mt-0">
+                    <button id="backToDashboardBtn" class="bg-yellow-600 text-white font-bold py-2 px-4 rounded-lg shadow-md hover:bg-yellow-500 transition-colors">返回主页</button>
+                    <button id="showStatsBtn" class="bg-sky-600 text-white font-bold py-2 px-4 rounded-lg shadow-md hover:bg-sky-500 transition-colors">复习统计</button>
+                    <button id="exportBtn" class="bg-emerald-600 text-white font-bold py-2 px-4 rounded-lg shadow-md hover:bg-emerald-500 transition-colors">导出CSV</button>
+                </div>
+            </div>
+            <div id="plan-list" class="space-y-4"></div>
+            <div class="mt-6 text-center"><button id="smartSummaryBtn" class="bg-purple-600 text-white font-bold py-3 px-6 rounded-lg shadow-md hover:bg-purple-500 transition-colors">✨ 今日智能小结</button></div>
+        `;
+
+        const list = document.getElementById('plan-list');
+        plan.forEach((item, index) => {
+            const subjectColor = {'数据结构': 'bg-sky-500', '计组': 'bg-amber-500', '操作系统': 'bg-emerald-500', '计网': 'bg-rose-500'}[item.subject];
+            list.insertAdjacentHTML('beforeend', `
+                <div class="plan-item bg-gray-800 p-4 rounded-lg shadow-md space-y-3" style="animation-delay: ${index * 100}ms;">
+                    <div class="flex items-start space-x-4">
+                        <input type="checkbox" id="item-${index}" data-section-index="${index}" class="custom-checkbox flex-shrink-0 w-6 h-6 mt-1 bg-gray-700 border-gray-600 rounded-md focus:ring-2 focus:ring-indigo-500" ${item.completed ? 'checked' : ''}>
+                        <div class="flex-grow">
+                            <label for="item-${index}" class="cursor-pointer block">
+                                <div class="flex justify-between items-baseline"><p class="font-bold text-white">${item.subject} - ${item.chapter}</p><span class="text-sm text-gray-400">${item.duration}分钟</span></div>
+                                <p class="text-gray-300 ${item.completed ? 'line-through' : ''}">${item.section}</p>
+                            </label>
+                        </div>
+                        <div class="flex-shrink-0 flex items-center space-x-2">
+                            <button class="ai-btn text-xl" data-type="explain" data-section-index="${index}" title="深入解析">🧠</button>
+                            <button class="ai-btn text-xl" data-type="question" data-section-index="${index}" title="生成练习题">❓</button>
+                        </div>
+                    </div>
+                    <div class="pl-10">
+                        <textarea class="note-area w-full bg-gray-700 rounded-md p-2 text-sm text-gray-300 placeholder-gray-500 focus:ring-2 focus:ring-indigo-500 focus:outline-none"
+                                  data-section-index="${index}" placeholder="在此输入你的笔记...">${item.note || ''}</textarea>
+                        <button class="ai-note-btn mt-2 text-xs bg-purple-600 hover:bg-purple-500 text-white font-semibold py-1 px-3 rounded-full transition-colors"
+                                data-section-index="${index}">✨ AI 优化笔记</button>
+                    </div>
+                </div>
+            `);
+        });
+
+        switchView('plan-container');
+        attachPlanEventListeners();
+    }
+
+    function displayStatisticsMain() {
+        const container = document.getElementById('stats-main-container');
+        const chapters = SYLLABUS.reduce((acc, item) => {
+            const chapterName = `${item[0]} - ${item[1]}`;
+            if (!acc.includes(chapterName)) acc.push(chapterName);
+            return acc;
+        }, []);
+
+        let statsHTML = `
+            <div class="flex justify-between items-center mb-6"><h2 class="text-3xl font-bold text-white">复习统计中心</h2><button id="backToPlanBtnFromStats" class="bg-gray-600 text-white font-bold py-2 px-4 rounded-lg shadow-md hover:bg-gray-500 transition-colors">返回</button></div>
+            <div class="bg-gray-800 p-4 rounded-lg shadow-md overflow-auto max-h-[70vh]"><div class="space-y-2">`;
+
+        chapters.forEach((chapterName, index) => {
+            statsHTML += `
+                <button class="stat-item chapter-btn w-full text-left p-4 flex justify-between items-center hover:bg-gray-700 rounded-md transition-colors" data-chapter="${chapterName}" style="animation-delay: ${index * 20}ms;">
+                    <span>${chapterName}</span>
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path></svg>
+                </button>`;
+        });
+
+        statsHTML += `</div></div><div class="mt-6 text-center"><button id="clearHistoryBtn" class="bg-red-600 text-white font-bold py-2 px-4 rounded-lg shadow-md hover:bg-red-500 transition-colors">清除所有学习记录</button></div>`;
+
+        container.innerHTML = statsHTML;
+        switchView('stats-main-container');
+
+        document.getElementById('backToPlanBtnFromStats').addEventListener('click', backToPlanOrIntro);
+        document.getElementById('clearHistoryBtn').addEventListener('click', clearAllHistory);
+        document.querySelectorAll('.chapter-btn').forEach(btn => {
+            btn.addEventListener('click', () => displayChapterDetail(btn.dataset.chapter));
+        });
+    }
+
+    function displayChapterDetail(chapterName) {
+        const container = document.getElementById('chapter-detail-container');
+        const history = storage.get('reviewHistory', {});
+        const chapterSections = SYLLABUS.filter(item => `${item[0]} - ${item[1]}` === chapterName);
+        const today = new Date();
+        const oneDay = 1000 * 60 * 60 * 24;
+
+        let totalReviews = 0, totalMemoryStrength = 0;
+        let weakestTopic = { name: 'N/A', strength: 1 };
+
+        chapterSections.forEach(s => {
+            const historyItem = history[s[2]];
+            totalReviews += historyItem ? historyItem.reviewCount : 0;
+            const strength = historyItem ? Math.max(0.1, Math.exp(-Math.round((today - new Date(historyItem.lastReviewed)) / oneDay) / 14)) : 0.1;
+            totalMemoryStrength += strength;
+            if (strength < weakestTopic.strength) {
+                weakestTopic = { name: s[2], strength: strength };
+            }
+        });
+        const mastery = (totalMemoryStrength / chapterSections.length * 100).toFixed(1);
+
+        container.innerHTML = `
+            <div class="flex justify-between items-center mb-6"><h2 class="text-2xl font-bold text-white">${chapterName}</h2><button id="backToStatsMainBtn" class="bg-gray-600 text-white font-bold py-2 px-4 rounded-lg shadow-md hover:bg-gray-500 transition-colors">返回列表</button></div>
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+                <div class="bg-gray-800 p-4 rounded-lg text-center"><p class="text-sm text-gray-400">章节掌握度</p><p class="text-3xl font-bold text-green-400">${mastery}%</p></div>
+                <div class="bg-gray-800 p-4 rounded-lg text-center"><p class="text-sm text-gray-400">总复习次数</p><p class="text-3xl font-bold text-sky-400">${totalReviews}</p></div>
+                <div class="bg-gray-800 p-4 rounded-lg text-center"><p class="text-sm text-gray-400">当前最易忘</p><p class="text-lg font-bold text-red-400 truncate" title="${weakestTopic.name}">${weakestTopic.name}</p></div>
+            </div>
+            <div class="bg-gray-800 p-4 rounded-lg shadow-md">
+                <h3 class="font-bold mb-4">遗忘曲线 (记忆强度)</h3><canvas id="chapter-chart" width="400" height="200"></canvas>
+                <h3 class="font-bold mt-6 mb-4">详细数据</h3><div class="overflow-auto max-h-60"><table class="w-full text-left text-sm">
+                    <thead class="sticky top-0 bg-gray-800"><tr><th class="p-2">小节</th><th class="p-2">复习次数</th><th class="p-2">上次复习</th></tr></thead>
+                    <tbody>${chapterSections.map(s => `
+                        <tr class="border-t border-gray-700"><td class="p-2">${s[2]}</td><td class="p-2 text-center">${history[s[2]] ? history[s[2]].reviewCount : 0}</td><td class="p-2">${history[s[2]] ? history[s[2]].lastReviewed : '从未'}</td></tr>`).join('')}
+                    </tbody></table></div></div>`;
+
+        switchView('chapter-detail-container');
+        createForgettingCurveChart('chapter-chart', chapterSections, history);
+        document.getElementById('backToStatsMainBtn').addEventListener('click', () => switchView('stats-main-container'));
+    }
+
+    function displayHistoryDetail(planData, dateStr) {
+        const container = document.getElementById('history-detail-container');
+        const { plan, duration } = planData;
+
+        const completedCount = plan.filter(p => p.completed).length;
+        const completionRate = plan.length > 0 ? (completedCount / plan.length * 100).toFixed(1) : 0;
+        const subjects = [...new Set(plan.map(p => p.subject))];
+
+        const subjectDurations = plan.reduce((acc, item) => {
+            if (item.completed) {
+                acc[item.subject] = (acc[item.subject] || 0) + item.duration;
+            }
+            return acc;
+        }, {});
+
+        container.innerHTML = `
+            <div class="flex justify-between items-center mb-6">
+                <h2 class="text-3xl font-bold text-white">复习复盘: ${dateStr}</h2>
+                <button id="backToDashboardFromHistory" class="bg-gray-600 text-white font-bold py-2 px-4 rounded-lg shadow-md hover:bg-gray-500 transition-colors">返回主页</button>
+            </div>
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+                <div class="bg-gray-800 p-4 rounded-lg text-center"><p class="text-sm text-gray-400">完成率</p><p class="text-3xl font-bold text-green-400">${completionRate}%</p></div>
+                <div class="bg-gray-800 p-4 rounded-lg text-center"><p class="text-sm text-gray-400">总耗时</p><p class="text-3xl font-bold text-sky-400">${(duration/60).toFixed(1)}小时</p></div>
+                <div class="bg-gray-800 p-4 rounded-lg text-center"><p class="text-sm text-gray-400">复习科目数</p><p class="text-3xl font-bold text-purple-400">${subjects.length}</p></div>
+            </div>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div class="bg-gray-800 p-4 rounded-lg shadow-md">
+                    <h3 class="font-bold mb-4">各科耗时分布 (已完成)</h3>
+                    <canvas id="history-pie-chart" width="400" height="400"></canvas>
+                </div>
+                <div class="bg-gray-800 p-4 rounded-lg shadow-md overflow-auto max-h-[50vh]">
+                    <h3 class="font-bold mb-4">复习项与笔记</h3>
+                    <div class="space-y-4">
+                    ${plan.map(item => `
+                        <div class="border-b border-gray-700 pb-2">
+                            <p class="font-semibold ${item.completed ? 'text-green-400' : 'text-yellow-400'}">${item.completed ? '[完成]' : '[未完成]'} ${item.section}</p>
+                            ${item.note ? `<p class="text-sm text-gray-400 mt-1 pl-4 border-l-2 border-gray-600"><strong>笔记:</strong> ${item.note}</p>` : ''}
+                        </div>
+                    `).join('')}
+                    </div>
+                </div>
+            </div>
+        `;
+        switchView('history-detail-container');
+        createHistoryPieChart('history-pie-chart', subjectDurations);
+        document.getElementById('backToDashboardFromHistory').addEventListener('click', () => switchView('dashboard-container'));
+    }
+
+    function displayFullCalendar(date) {
+        const container = document.getElementById('full-calendar-container');
+        const month = date.getMonth();
+        const year = date.getFullYear();
+
+        const firstDay = new Date(year, month, 1).getDay();
+        const daysInMonth = new Date(year, month + 1, 0).getDate();
+
+        let calendarHTML = `
+            <div class="flex justify-between items-center mb-6">
+                <h2 class="text-3xl font-bold text-white">学习日历</h2>
+                <button id="backToDashboardFromCalendar" class="bg-gray-600 text-white font-bold py-2 px-4 rounded-lg shadow-md hover:bg-gray-500 transition-colors">返回主页</button>
+            </div>
+            <div class="bg-gray-800 p-4 rounded-lg shadow-md">
+                <div class="flex justify-between items-center mb-4">
+                    <button id="prev-month" class="p-2 rounded-md hover:bg-gray-700">&lt;</button>
+                    <h3 class="text-xl font-bold">${year}年 ${month + 1}月</h3>
+                    <button id="next-month" class="p-2 rounded-md hover:bg-gray-700">&gt;</button>
+                </div>
+                <div class="grid calendar-grid gap-1 text-center text-xs font-bold text-gray-400 mb-2">
+                    <div>日</div><div>一</div><div>二</div><div>三</div><div>四</div><div>五</div><div>六</div>
+                </div>
+                <div id="calendar-body" class="grid calendar-grid gap-1">`;
+
+        for (let i = 0; i < firstDay; i++) {
+            calendarHTML += `<div></div>`;
+        }
+
+        for (let day = 1; day <= daysInMonth; day++) {
+            const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+            const planData = storage.get(`plan_${dateStr}`);
+            let bgColor = 'bg-gray-700';
+            if (planData && planData.plan.length > 0) {
+                const completedCount = planData.plan.filter(p => p.completed).length;
+                if (completedCount > 0) {
+                    if (completedCount <= 2) bgColor = 'bg-green-900';
+                    else if (completedCount <= 5) bgColor = 'bg-green-700';
+                    else bgColor = 'bg-green-500';
+                }
+            }
+
+            calendarHTML += `<div class="h-16 p-1 text-left rounded-md ${bgColor} ${planData ? 'cursor-pointer hover:ring-2 ring-indigo-400' : ''}" data-date="${dateStr}">
+                <span class="font-bold">${day}</span>
+            </div>`;
+        }
+
+        calendarHTML += `</div></div>`;
+        container.innerHTML = calendarHTML;
+        switchView('full-calendar-container');
+
+        document.getElementById('backToDashboardFromCalendar').addEventListener('click', () => switchView('dashboard-container'));
+        document.getElementById('prev-month').addEventListener('click', () => displayFullCalendar(new Date(year, month - 1, 1)));
+        document.getElementById('next-month').addEventListener('click', () => displayFullCalendar(new Date(year, month + 1, 1)));
+        document.querySelectorAll('.calendar-grid div[data-date]').forEach(cell => {
+            cell.addEventListener('click', (e) => {
+                const planData = storage.get(`plan_${e.currentTarget.dataset.date}`);
+                if(planData) displayHistoryDetail(planData, e.currentTarget.dataset.date);
+            });
+        });
+    }
+
+    function createHistoryPieChart(canvasId, subjectDurations) {
+        const canvas = document.getElementById(canvasId);
+        if (!canvas) return;
+        if (canvas.chart) canvas.chart.destroy();
+
+        const labels = Object.keys(subjectDurations);
+        const data = Object.values(subjectDurations);
+        const backgroundColors = ['rgba(59, 130, 246, 0.7)', 'rgba(234, 179, 8, 0.7)', 'rgba(16, 185, 129, 0.7)', 'rgba(244, 63, 94, 0.7)'];
+
+        canvas.chart = new Chart(canvas.getContext('2d'), {
+            type: 'pie',
+            data: {
+                labels: labels,
+                datasets: [{
+                    label: '耗时 (分钟)',
+                    data: data,
+                    backgroundColor: backgroundColors,
+                    borderColor: '#1f2937',
+                    borderWidth: 2
+                }]
+            },
+            options: {
+                responsive: true,
+                plugins: { legend: { position: 'top', labels: { color: '#cbd5e1' } } }
+            }
+        });
+    }
+
+    function attachPlanEventListeners() {
+        document.querySelectorAll('.custom-checkbox').forEach(c => c.addEventListener('change', handleCheckboxChange));
+        document.getElementById('exportBtn').addEventListener('click', exportToCSV);
+        document.getElementById('showStatsBtn').addEventListener('click', displayStatisticsMain);
+        document.querySelectorAll('.ai-btn').forEach(b => b.addEventListener('click', handleAIButtonClick));
+        document.getElementById('smartSummaryBtn').addEventListener('click', handleSmartSummary);
+        document.getElementById('backToDashboardBtn').addEventListener('click', () => {
+            if (confirm("您确定要放弃当前计划并返回主页吗？此操作不可撤销。")) {
+                switchView('dashboard-container');
+            }
+        });
+        document.querySelectorAll('.note-area').forEach(textarea => textarea.addEventListener('blur', handleNoteChange));
+        document.querySelectorAll('.ai-note-btn').forEach(btn => btn.addEventListener('click', handleAINoteOptimize));
+    }
+
+    function createForgettingCurveChart(canvasId, chapterSections, history) {
+        const canvas = document.getElementById(canvasId);
+        if (!canvas) return;
+        if (canvas.chart) canvas.chart.destroy();
+
+        const today = new Date();
+        const oneDay = 1000 * 60 * 60 * 24;
+        const labels = chapterSections.map(s => s[2].split(' ')[0]);
+        const data = chapterSections.map(s => {
+            const historyItem = history[s[2]];
+            if (!historyItem) return 0.1;
+            const daysSince = Math.round((today - new Date(historyItem.lastReviewed)) / oneDay);
+            return Math.max(0.1, Math.exp(-daysSince / 14));
+        });
+
+        canvas.chart = new Chart(canvas.getContext('2d'), {
+            type: 'bar',
+            data: { labels: labels, datasets: [{
+                    label: '记忆强度 (越高越好)', data: data,
+                    backgroundColor: data.map(d => d < 0.5 ? 'rgba(255, 99, 132, 0.6)' : 'rgba(75, 192, 192, 0.6)'),
+                    borderColor: data.map(d => d < 0.5 ? 'rgba(255, 99, 132, 1)' : 'rgba(75, 192, 192, 1)'),
+                    borderWidth: 1 }]
+            },
+            options: {
+                scales: { y: { beginAtZero: true, max: 1, ticks: { color: '#cbd5e1' } }, x: { ticks: { color: '#cbd5e1' } } },
+                plugins: { legend: { labels: { color: '#cbd5e1' } } }
+            }
+        });
+    }
+
+    function handleCheckboxChange(event) {
+        const checkbox = event.target, sectionIndex = checkbox.dataset.sectionIndex, isCompleted = checkbox.checked;
+        checkbox.closest('.plan-item').querySelector('.text-gray-300').classList.toggle('line-through', isCompleted);
+
+        const todayStr = getTodayDateString();
+        const planData = storage.get(`plan_${todayStr}`);
+        const item = planData.plan[sectionIndex];
+        if (item) item.completed = isCompleted;
+        storage.set(`plan_${todayStr}`, planData);
+
+        if (isCompleted) {
+            const history = storage.get('reviewHistory', {});
+            const sectionName = item.section;
+            const historyItem = history[sectionName] || { reviewCount: 0 };
+            historyItem.lastReviewed = todayStr;
+            historyItem.reviewCount = (historyItem.reviewCount || 0) + 1;
+            history[sectionName] = historyItem;
+            storage.set('reviewHistory', history);
+        }
+    }
+
+    function handleNoteChange(event) {
+        const textarea = event.target;
+        const sectionIndex = textarea.dataset.sectionIndex;
+        const todayStr = getTodayDateString();
+        const planData = storage.get(`plan_${todayStr}`);
+        if (planData && planData.plan[sectionIndex]) {
+            planData.plan[sectionIndex].note = textarea.value;
+            storage.set(`plan_${todayStr}`, planData);
+        }
+    }
+
+    function exportToCSV() {
+        const todayStr = getTodayDateString();
+        const planData = storage.get(`plan_${todayStr}`);
+        if (!planData || !planData.plan) return alert('没有可导出的计划。');
+
+        let csvContent = "data:text/csv;charset=utf-8,\uFEFF" + "科目,章节,小节,完成状态,笔记,复习日期\r\n";
+        planData.plan.forEach(item => {
+            const note = item.note ? `"${item.note.replace(/"/g, '""')}"` : "";
+            csvContent += [`"${item.subject}"`, `"${item.chapter}"`, `"${item.section}"`, item.completed ? "已完成" : "未完成", note, todayStr].join(",") + "\r\n";
+        });
+
+        const link = document.createElement("a");
+        link.setAttribute("href", encodeURI(csvContent));
+        link.setAttribute("download", `408-复习计划-${todayStr}.csv`);
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+    }
+
+    function clearAllHistory() {
+        if (confirm('确定要清除所有学习记录吗？此操作不可恢复。')) {
+            localStorage.clear();
+            alert('所有记录已清除。');
+            switchView('dashboard-container');
+            location.reload();
+        }
+    }
+
+    function switchView(viewId) {
+        document.querySelectorAll('.view-container').forEach(el => {
+            if (el.id === viewId) {
+                el.classList.remove('hidden-view');
+                el.style.position = 'relative';
+            } else {
+                el.classList.add('hidden-view');
+                el.style.position = 'absolute';
+            }
+        });
+    }
+
+    function backToPlanOrIntro() {
+        const todayPlan = storage.get(`plan_${getTodayDateString()}`);
+        if (todayPlan) switchView('plan-container');
+        else switchView('dashboard-container');
+    }
+
+    // --- Modal & AI Section ---
+    const aiModal = {
+        backdrop: document.getElementById('ai-modal-backdrop'),
+        title: document.getElementById('ai-modal-title'),
+        loading: document.getElementById('ai-loading'),
+        result: document.getElementById('ai-result'),
+    };
+    const notesModal = {
+        backdrop: document.getElementById('notes-modal-backdrop'),
+        title: document.getElementById('notes-modal-title'),
+        textarea: document.getElementById('notes-textarea'),
+        saveBtn: document.getElementById('save-note-btn'),
+    };
+    const apiKeyModal = {
+        backdrop: document.getElementById('api-key-modal-backdrop'),
+        input: document.getElementById('api-key-input'),
+        saveBtn: document.getElementById('save-api-key-btn'),
+        closeBtn: document.getElementById('api-key-modal-close'),
+    };
+
+    function showModal(modal, title) {
+        if(modal.title) modal.title.textContent = title;
+        if(modal.result) modal.result.innerHTML = '';
+        if(modal.loading) modal.loading.style.display = 'flex';
+        modal.backdrop.classList.remove('hidden');
+    }
+
+    function hideModal(modal) {
+        modal.backdrop.classList.add('hidden');
+    }
+
+    document.querySelectorAll('.modal-close').forEach(btn => btn.addEventListener('click', (e) => hideModal(e.currentTarget.closest('.modal-backdrop').id.includes('ai-modal') ? aiModal : notesModal)));
+    document.querySelectorAll('.modal-backdrop').forEach(bd => bd.addEventListener('click', (e) => { if (e.target === bd) hideModal(bd.id.includes('ai-modal') ? aiModal : notesModal)}));
+    apiKeyModal.closeBtn.addEventListener('click', () => hideModal(apiKeyModal));
+
+
+    function showApiKeyModal() {
+        apiKeyModal.input.value = storage.get('apiKey', '');
+        apiKeyModal.backdrop.classList.remove('hidden');
+    }
+    apiKeyModal.saveBtn.addEventListener('click', () => {
+        const key = apiKeyModal.input.value.trim();
+        if (key) {
+            storage.set('apiKey', key);
+            hideModal(apiKeyModal);
+            alert('API密钥已保存！');
+        } else {
+            alert('请输入有效的API密钥。');
+        }
+    });
+
+
+    async function callAI(prompt, targetTextarea = null) {
+        const apiKey = storage.get('apiKey');
+        if (!apiKey) {
+            alert("请先设置您的AI API密钥！");
+            showApiKeyModal();
+            return;
+        }
+
+        const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-05-20:generateContent?key=${apiKey}`;
+
+        try {
+            const response = await fetch(apiUrl, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] })
+            });
+
+            const data = await response.json();
+
+            if (!response.ok) {
+                const errorMessage = data.error ? data.error.message : `API request failed with status ${response.status}`;
+                if (response.status === 400 || response.status === 403) {
+                    alert('API密钥无效或请求格式错误，请检查您的密钥。');
+                    showApiKeyModal();
+                }
+                throw new Error(errorMessage);
+            }
+
+            if (!data.candidates || data.candidates.length === 0 || !data.candidates[0].content || !data.candidates[0].content.parts) {
+                console.error("Invalid response structure from AI:", data);
+                throw new Error("AI返回了无效或空的响应。");
+            }
+
+            const text = data.candidates[0].content.parts[0].text;
+            aiModal.loading.style.display = 'none';
+            aiModal.result.textContent = text;
+
+            if (targetTextarea) {
+                targetTextarea.value = text;
+                targetTextarea.dispatchEvent(new Event('input', { bubbles: true }));
+            }
+
+        } catch (error) {
+            console.error("AI API call failed:", error);
+            aiModal.loading.style.display = 'none';
+            aiModal.result.textContent = `抱歉，AI助手出错了。\n错误信息: ${error.message}`;
+        }
+    }
+
+    function handleAIButtonClick(event) {
+        const { type, sectionIndex } = event.currentTarget.dataset;
+        const todayStr = getTodayDateString();
+        const planData = storage.get(`plan_${todayStr}`);
+        const item = planData.plan[sectionIndex];
+        const topic = item.section;
+        const examPoints = item.examPoints.join('\n- ');
+
+        let prompt = "", title = "";
+
+        if (type === 'explain') {
+            title = `✨ 深入解析: ${topic}`;
+            prompt = `作为一名资深的计算机科学教育者，请以严谨、学术的口吻，为正在备考408的计算机专业学生深入解析“${topic}”这一知识点。请围绕以下具体考点展开：\n- ${examPoints}\n\n内容应包括其核心定义、关键原理/特征，以及在计算机系统中的典型应用场景。请确保内容准确、精炼，并使用中文回答。`;
+        } else if (type === 'question') {
+            title = `✨ 随堂练习: ${topic}`;
+            prompt = `作为一名408计算机考研的命题专家，请严格仿照考研真题的风格，并紧密围绕以下一个或多个具体考点，出一道高质量的单项选择题。\n考点：\n- ${examPoints}\n\n要求题干严谨，选项具有迷惑性。最后请给出正确答案和详尽的解析。请用中文回答。`;
+        }
+        showModal(aiModal, title);
+        callAI(prompt);
+    }
+
+    function handleNoteButtonClick(event) {
+        const { sectionIndex } = event.currentTarget.dataset;
+        const todayStr = getTodayDateString();
+        const planData = storage.get(`plan_${todayStr}`);
+        const item = planData.plan[sectionIndex];
+
+        notesModal.textarea.value = item.note || "";
+        showModal(notesModal, `笔记: ${item.section}`);
+
+        const newSaveBtn = notesModal.saveBtn.cloneNode(true);
+        notesModal.saveBtn.parentNode.replaceChild(newSaveBtn, notesModal.saveBtn);
+        notesModal.saveBtn = newSaveBtn;
+
+        notesModal.saveBtn.addEventListener('click', () => {
+            item.note = notesModal.textarea.value;
+            storage.set(`plan_${todayStr}`, planData);
+            hideModal(notesModal);
+        });
+    }
+
+    function handleAINoteOptimize(event) {
+        const button = event.currentTarget;
+        const sectionIndex = button.dataset.sectionIndex;
+        const todayStr = getTodayDateString();
+        const planData = storage.get(`plan_${todayStr}`);
+        const item = planData.plan[sectionIndex];
+        const userNote = item.note || "";
+        const topic = item.section;
+
+        if (userNote.trim() === "") {
+            alert("请先输入一些笔记内容再让AI优化哦！");
+            return;
+        }
+
+        const title = `✨ 正在优化笔记: ${topic}`;
+        const prompt = `作为一名顶级的408计算机考研辅导老师，请将以下学生针对“${topic}”这个知识点写的笔记进行优化。要求：1. 结构化处理，使用点句或编号让逻辑更清晰。2. 修正概念错误，补充关键的遗漏点。3. 语言精炼，突出重点，使其更适合背诵和记忆。4. 直接返回优化后的笔记内容，无需额外说明。学生的原始笔记是：\n\n"${userNote}"`;
+
+        showModal(aiModal, title);
+        const targetTextarea = document.querySelector(`textarea[data-section-index="${sectionIndex}"]`);
+        callAI(prompt, targetTextarea);
+    }
+
+    function handleSmartSummary() {
+        const todayStr = getTodayDateString();
+        const planData = storage.get(`plan_${todayStr}`);
+        if (!planData || !planData.plan) return;
+        const topicList = planData.plan.map(item => `${item.subject}的"${item.section.split(' ')[0]}"`).join('、');
+        const title = "✨ 今日智能小结";
+        const prompt = `我是一名正在备考408计算机考研的学生，今天的复习内容包括：${topicList}。请你以一位资深老师的视角，为我生成一段150字左右的总结，点出这些知识点之间的内在联系，或者它们在计算机科学体系中的位置和重要性。请用中文回答。`;
+        showModal(aiModal, title);
+        callAI(prompt);
+    }
+
+    // --- 页面加载逻辑 ---
+    window.addEventListener('load', () => {
+        const todayStr = getTodayDateString();
+        const savedPlan = storage.get(`plan_${todayStr}`);
+        const apiKey = storage.get('apiKey');
+
+        if (!apiKey) {
+            showApiKeyModal();
+        }
+
+        if (savedPlan) {
+            displayPlan(savedPlan);
+        } else {
+            displayDashboard();
+        }
+    });
+</script>
+
+</body>
+</html>
