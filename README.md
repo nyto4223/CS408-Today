@@ -38,6 +38,7 @@ Crafted by Nyto4223 & Gemini
 完成设置，开始享受你的专属智能复习体验吧！
 
 🛠️ 技术栈
+
 前端: HTML5, JavaScript (ES6+)
 
 样式: Tailwind CSS
