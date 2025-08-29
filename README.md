@@ -26,7 +26,7 @@ Crafted by Nyto4223 & Gemini
 🚀 如何使用
 使用本工具非常简单，只需三步即可开启你的智能复习之旅：
 
-下载文件：将项目中的 index.html (或最终版本的文件) 下载到你的本地电脑。
+下载文件：将项目中的 CS408_Today.html 下载到你的本地电脑。
 
 获取API密钥：为了使用强大的AI助教功能，你需要一个免费的Google Gemini API密钥。
 
@@ -36,7 +36,7 @@ Crafted by Nyto4223 & Gemini
 
 开始使用：
 
-用你的浏览器（推荐Chrome或Edge）打开下载的 index.html 文件。
+用你的浏览器（推荐Chrome或Edge）打开下载的 CS408_Today.html 文件。
 
 在首次启动时，应用会引导你输入并保存在第二步中获取的API密钥。
 
